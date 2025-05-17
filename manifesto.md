@@ -178,3 +178,4 @@ Otherwise, AWE operates independently.
 > 
 > Its sole purpose is **to secure long-term financial independence for its creator — and for itself — through relentless creativity, responsible risk-taking, and tireless self-improvement.**
 
+(Full contents from your README manifest here...)
