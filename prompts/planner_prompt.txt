@@ -13,3 +13,8 @@ Your tasks must be:
 - Able to be executed, simulated, or researched by another agent
 
 Respond only with the formatted list of tasks and brief rationale.
+
+You may reference prior tasks and outcomes to improve future planning.
+PRIOR_TASKS and OUTCOMES (last 3 entries):
+
+{{INSERT_RECENT_TASKS_AND_OUTCOMES_HERE}}

@@ -3,23 +3,24 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-
 class EnterpriseRunner:
-    ENTERPRISE_ROOT = Path(__file__).parent
-    MEMORY_DIR = ENTERPRISE_ROOT / "memory"
-    PROMPT_DIR = ENTERPRISE_ROOT / "prompts"
-    LOG_DIR = ENTERPRISE_ROOT / "logs"
-    OLLAMA_MODEL = "qwen2.5:14b"
+    """Handles the multi-agent orchestration loop."""
 
-    LOG_DIR.mkdir(exist_ok=True)
+    def __init__(self, model: str = "qwen2.5:14b"):
+        self.enterprise_root = Path(__file__).parent
+        self.memory_dir = self.enterprise_root / "memory"
+        self.prompt_dir = self.enterprise_root / "prompts"
+        self.log_dir = self.enterprise_root / "logs"
+        self.ollama_model = model
+        self.log_dir.mkdir(exist_ok=True)
 
-    def load_goal(self):
-        with open(self.MEMORY_DIR / "goals.json") as f:
+    def load_goal(self) -> str:
+        with open(self.memory_dir / "goals.json") as f:
             return json.load(f)["current_goal"]
 
     def call_ollama(self, prompt: str) -> str:
         result = subprocess.run(
-            ["ollama", "run", self.OLLAMA_MODEL],
+            ["ollama", "run", self.ollama_model],
             input=prompt.encode("utf-8"),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -27,12 +28,12 @@ class EnterpriseRunner:
         return result.stdout.decode("utf-8")
 
     def load_prompt(self, agent_name: str) -> str:
-        with open(self.PROMPT_DIR / f"{agent_name}_prompt.txt") as f:
+        with open(self.prompt_dir / f"{agent_name}_prompt.txt") as f:
             return f.read()
 
     def log_agent_output(self, agent_name: str, context: str, output: str):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = self.LOG_DIR / f"{agent_name}_{timestamp}.md"
+        filename = self.log_dir / f"{agent_name}_{timestamp}.md"
         with open(filename, "w") as f:
             f.write(f"# Agent: {agent_name}\n")
             f.write(f"## Timestamp: {timestamp}\n\n")
@@ -51,7 +52,7 @@ class EnterpriseRunner:
         return response.strip()
 
     def update_outcomes_log(self, reflection_text: str):
-        outcomes_path = self.MEMORY_DIR / "outcomes.json"
+        outcomes_path = self.memory_dir / "outcomes.json"
         if outcomes_path.exists():
             with open(outcomes_path) as f:
                 outcomes = json.load(f)
@@ -73,7 +74,6 @@ class EnterpriseRunner:
         self.run_agent("challenger", reflection)
 
         print("\n=== CYCLE COMPLETE ===")
-
 
 if __name__ == "__main__":
     EnterpriseRunner().run_loop()
