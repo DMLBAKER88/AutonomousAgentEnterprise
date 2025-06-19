@@ -19,6 +19,35 @@ AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
 LOG_DIR.mkdir(exist_ok=True)
 
 # ----------------------------------------
+# Memory Summary for Planner
+# ----------------------------------------
+
+def get_recent_task_and_outcome_summaries(n: int = 3) -> str:
+    """Return formatted summaries of the last N tasks and outcomes."""
+    try:
+        with open(MEMORY_DIR / "task_log.json") as f:
+            tasks = json.load(f)
+    except Exception:
+        tasks = []
+
+    try:
+        with open(MEMORY_DIR / "outcomes.json") as f:
+            outcomes = json.load(f)
+    except Exception:
+        outcomes = []
+
+    tasks_recent = tasks[-n:] if isinstance(tasks, list) else []
+    outcomes_recent = outcomes[-n:] if isinstance(outcomes, list) else []
+
+    summary_lines = ["Tasks:"]
+    summary_lines.extend(f"- {t}" for t in tasks_recent) if tasks_recent else summary_lines.append("- None")
+
+    summary_lines.append("\nOutcomes:")
+    summary_lines.extend(f"- {o}" for o in outcomes_recent) if outcomes_recent else summary_lines.append("- None")
+
+    return "\n".join(summary_lines)
+
+# ----------------------------------------
 # Utility + I/O Functions
 # ----------------------------------------
 
@@ -91,6 +120,9 @@ def call_ollama(prompt: str) -> str:
 def run_agent(agent_name: str, context_label: str, context: str) -> str:
     speak(f"\n>>> Running {agent_name}...")
     prompt = load_prompt(agent_name)
+    if agent_name == "planner":
+        recent = get_recent_task_and_outcome_summaries()
+        prompt = prompt.replace("{{INSERT_RECENT_TASKS_AND_OUTCOMES_HERE}}", recent)
     debug_print(f"Prompt:\n{prompt}")
     full_prompt = f"{prompt}\n\nCONTEXT:\n{context.strip()}"
     debug_print(f"Full prompt:\n{full_prompt}")
