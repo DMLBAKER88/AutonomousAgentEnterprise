@@ -11,6 +11,26 @@ OLLAMA_MODEL = "qwen2.5:14b"
 
 LOG_DIR.mkdir(exist_ok=True)
 
+def update_task_log(tasks: str, execution_summary: str):
+    """Append planner tasks and executor summary to memory/task_log.json."""
+    log_path = MEMORY_DIR / "task_log.json"
+    if not log_path.exists():
+        log_path.write_text("[]")
+
+    with open(log_path) as f:
+        data = json.load(f)
+
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "tasks": tasks,
+        "execution_summary": execution_summary,
+    }
+
+    data.append(entry)
+
+    with open(log_path, "w") as f:
+        json.dump(data, f, indent=2)
+
 def load_goal():
     with open(MEMORY_DIR / "goals.json") as f:
         return json.load(f)["current_goal"]
@@ -54,6 +74,7 @@ def run_loop():
 
     tasks = run_agent("planner", goal)
     execution_summary = run_agent("executor", tasks)
+    update_task_log(tasks, execution_summary)
     reflection = run_agent("loopmind", execution_summary)
     run_agent("challenger", reflection)
 
