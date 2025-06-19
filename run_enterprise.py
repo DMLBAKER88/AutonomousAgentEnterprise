@@ -15,9 +15,9 @@ DEBUG = False
 QUIET = False
 
 LOG_DIR.mkdir(exist_ok=True)
-
-# Path to the aggregated logbook for the current run
 LOGBOOK_PATH = None
+
+AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
 
 def debug_print(msg: str):
     if DEBUG:
@@ -90,23 +90,25 @@ def run_agent(agent_name: str, context_label: str, context: str) -> str:
     log_agent_output(agent_name, context_label, context, response)
     return response.strip()
 
-def run_loop(debug: bool = False, quiet: bool = False):
-    global DEBUG, QUIET
-    DEBUG = debug
-    QUIET = quiet
+def run_cycle(sequence=AGENT_SEQUENCE) -> None:
+    """Execute one complete agent cycle using the given agent order."""
     init_logbook()
+    context = load_goal()
+    print(f"=== Current Goal: {context} ===")
 
-    goal = load_goal()
-    print(f"=== Current Goal: {goal} ===")
-
-    tasks = run_agent("planner", "Goal", goal)
-    execution_summary = run_agent("executor", "Task List", tasks)
-    reflection = run_agent("loopmind", "Execution Summary", execution_summary)
-    run_agent("challenger", "Reflection", reflection)
+    for agent in sequence:
+        context_label = {
+            "planner": "Goal",
+            "executor": "Task List",
+            "loopmind": "Execution Summary",
+            "challenger": "Reflection"
+        }.get(agent, "Context")
+        context = run_agent(agent, context_label, context)
 
     if QUIET:
         print("\n--- Final Reflection ---")
-        print(reflection)
+        print(context)
+
     print("\n=== CYCLE COMPLETE ===")
 
 def parse_args() -> argparse.Namespace:
