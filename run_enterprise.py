@@ -1,18 +1,92 @@
 import json
 import subprocess
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+import argparse
 
 ENTERPRISE_ROOT = Path(__file__).parent
 MEMORY_DIR = ENTERPRISE_ROOT / "memory"
 PROMPT_DIR = ENTERPRISE_ROOT / "prompts"
 LOG_DIR = ENTERPRISE_ROOT / "logs"
+CONFIG_PATH = MEMORY_DIR / "config.json"
 OLLAMA_MODEL = "qwen2.5:14b"
+
+DEBUG = False
+QUIET = False
+LOGBOOK_PATH = None
+AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
 
 LOG_DIR.mkdir(exist_ok=True)
 
+# ----------------------------------------
+# Utility + I/O Functions
+# ----------------------------------------
+
+def debug_print(msg: str):
+    if DEBUG:
+        print(msg)
+
+def speak(msg: str):
+    if not QUIET:
+        print(msg)
+
+def load_config() -> dict:
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    return {"debug": False, "quiet": False}
+
+def init_logbook() -> Path:
+    global LOGBOOK_PATH
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    LOGBOOK_PATH = LOG_DIR / f"logbook_{timestamp}.md"
+    with open(LOGBOOK_PATH, "w") as f:
+        f.write(f"# 📓 AWE Logbook - {timestamp}\n\n")
+    return LOGBOOK_PATH
+
+def log_agent_output(agent_name: str, context_label: str, context: str, output: str):
+    if LOGBOOK_PATH is None:
+        raise RuntimeError("Logbook not initialized")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(LOGBOOK_PATH, "a") as f:
+        f.write(f"## 🤖 Agent: {agent_name}\n")
+        f.write(f"**Timestamp:** {timestamp}\n\n")
+        f.write(f"### {context_label}\n{context.strip()}\n\n")
+        f.write(f"### 📣 Output\n{output.strip()}\n\n---\n\n")
+
+# ----------------------------------------
+# Memory Summary for Planner
+# ----------------------------------------
+
+def get_recent_task_and_outcome_summaries(n: int = 3) -> str:
+    try:
+        with open(MEMORY_DIR / "task_log.json") as f:
+            tasks = json.load(f)
+    except Exception:
+        tasks = []
+
+    try:
+        with open(MEMORY_DIR / "outcomes.json") as f:
+            outcomes = json.load(f)
+    except Exception:
+        outcomes = []
+
+    tasks_recent = tasks[-n:] if isinstance(tasks, list) else []
+    outcomes_recent = outcomes[-n:] if isinstance(outcomes, list) else []
+
+    summary_lines = ["Tasks:"]
+    summary_lines.extend(f"- {t}" for t in tasks_recent) if tasks_recent else summary_lines.append("- None")
+    summary_lines.append("\nOutcomes:")
+    summary_lines.extend(f"- {o}" for o in outcomes_recent) if outcomes_recent else summary_lines.append("- None")
+
+    return "\n".join(summary_lines)
+
+# ----------------------------------------
+# Task Log
+# ----------------------------------------
+
 def update_task_log(tasks: str, execution_summary: str):
-    """Append planner tasks and executor summary to memory/task_log.json."""
     log_path = MEMORY_DIR / "task_log.json"
     if not log_path.exists():
         log_path.write_text("[]")
@@ -31,54 +105,75 @@ def update_task_log(tasks: str, execution_summary: str):
     with open(log_path, "w") as f:
         json.dump(data, f, indent=2)
 
-def load_goal():
+# ----------------------------------------
+# Core Execution Logic
+# ----------------------------------------
+
+def load_goal() -> str:
     with open(MEMORY_DIR / "goals.json") as f:
         return json.load(f)["current_goal"]
 
+def load_prompt(agent_name: str) -> str:
+    with open(PROMPT_DIR / f"{agent_name}_prompt.txt") as f:
+        return f.read()
+
 def call_ollama(prompt: str) -> str:
+    debug_print(f"Calling Ollama with model {OLLAMA_MODEL}")
     result = subprocess.run(
         ["ollama", "run", OLLAMA_MODEL],
         input=prompt.encode("utf-8"),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    debug_print(result.stderr.decode("utf-8"))
     return result.stdout.decode("utf-8")
 
-def load_prompt(agent_name: str) -> str:
-    with open(PROMPT_DIR / f"{agent_name}_prompt.txt") as f:
-        return f.read()
-
-def log_agent_output(agent_name: str, context: str, output: str):
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = LOG_DIR / f"{agent_name}_{timestamp}.md"
-    with open(filename, "w") as f:
-        f.write(f"# Agent: {agent_name}\n")
-        f.write(f"## Timestamp: {timestamp}\n\n")
-        f.write("### Context\n")
-        f.write("```\n" + context.strip() + "\n```\n\n")
-        f.write("### Output\n")
-        f.write("```\n" + output.strip() + "\n```\n")
-
-def run_agent(agent_name: str, context: str) -> str:
-    print(f"\n>>> Running {agent_name}...")
+def run_agent(agent_name: str, context_label: str, context: str) -> str:
+    speak(f"\n>>> Running {agent_name}...")
     prompt = load_prompt(agent_name)
+    if agent_name == "planner":
+        recent = get_recent_task_and_outcome_summaries()
+        prompt = prompt.replace("{{INSERT_RECENT_TASKS_AND_OUTCOMES_HERE}}", recent)
     full_prompt = f"{prompt}\n\nCONTEXT:\n{context.strip()}"
+    debug_print(f"Full prompt:\n{full_prompt}")
     response = call_ollama(full_prompt)
-    print(f"\n--- {agent_name} Response ---\n{response.strip()}\n")
-    log_agent_output(agent_name, context, response)
-    return response.strip()
+    cleaned = response.strip()
+    log_agent_output(agent_name, context_label, context, cleaned)
+    if not QUIET:
+        print(f"\n--- {agent_name} Response ---\n{cleaned}\n")
+    return cleaned
 
-def run_loop():
+# ----------------------------------------
+# Full Cycle Runner
+# ----------------------------------------
+
+def run_cycle() -> None:
+    init_logbook()
     goal = load_goal()
     print(f"=== Current Goal: {goal} ===")
 
-    tasks = run_agent("planner", goal)
-    execution_summary = run_agent("executor", tasks)
+    tasks = run_agent("planner", "Goal", goal)
+    execution_summary = run_agent("executor", "Task List", tasks)
+    reflection = run_agent("loopmind", "Execution Summary", execution_summary)
+    challenge = run_agent("challenger", "Reflection", reflection)
+
     update_task_log(tasks, execution_summary)
-    reflection = run_agent("loopmind", execution_summary)
-    run_agent("challenger", reflection)
 
     print("\n=== CYCLE COMPLETE ===")
 
+# ----------------------------------------
+# CLI Entrypoint
+# ----------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the autonomous agent loop")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument("--quiet", action="store_true", help="Suppress agent chatter")
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    run_loop()
+    args = parse_args()
+    cfg = load_config()
+    DEBUG = args.debug or cfg.get("debug", False)
+    QUIET = args.quiet or cfg.get("quiet", False)
+    run_cycle()
