@@ -3,7 +3,6 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-
 ENTERPRISE_ROOT = Path(__file__).parent
 MEMORY_DIR = ENTERPRISE_ROOT / "memory"
 PROMPT_DIR = ENTERPRISE_ROOT / "prompts"
@@ -77,5 +76,7 @@ def run_loop():
 
     print("\n=== CYCLE COMPLETE ===")
 
+from enterprise_runner import EnterpriseRunner
+
 if __name__ == "__main__":
-    run_loop()
+    EnterpriseRunner().run_loop()
