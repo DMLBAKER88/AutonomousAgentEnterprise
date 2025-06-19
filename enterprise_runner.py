@@ -1,7 +1,7 @@
-from pathlib import Path
-from datetime import datetime
 import json
 import subprocess
+from pathlib import Path
+from datetime import datetime
 
 class EnterpriseRunner:
     """Handles the multi-agent orchestration loop."""
@@ -51,6 +51,18 @@ class EnterpriseRunner:
         self.log_agent_output(agent_name, context, response)
         return response.strip()
 
+    def update_outcomes_log(self, reflection_text: str):
+        outcomes_path = self.memory_dir / "outcomes.json"
+        if outcomes_path.exists():
+            with open(outcomes_path) as f:
+                outcomes = json.load(f)
+        else:
+            outcomes = []
+        timestamp = datetime.now().isoformat()
+        outcomes.append({"timestamp": timestamp, "reflection_text": reflection_text})
+        with open(outcomes_path, "w") as f:
+            json.dump(outcomes, f, indent=2)
+
     def run_loop(self):
         goal = self.load_goal()
         print(f"=== Current Goal: {goal} ===")
@@ -58,6 +70,10 @@ class EnterpriseRunner:
         tasks = self.run_agent("planner", goal)
         execution_summary = self.run_agent("executor", tasks)
         reflection = self.run_agent("loopmind", execution_summary)
+        self.update_outcomes_log(reflection)
         self.run_agent("challenger", reflection)
 
         print("\n=== CYCLE COMPLETE ===")
+
+if __name__ == "__main__":
+    EnterpriseRunner().run_loop()
