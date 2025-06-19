@@ -11,6 +11,38 @@ OLLAMA_MODEL = "qwen2.5:14b"
 
 LOG_DIR.mkdir(exist_ok=True)
 
+def get_recent_task_and_outcome_summaries(n: int = 3) -> str:
+    """Return formatted summaries of the last N tasks and outcomes."""
+    try:
+        with open(MEMORY_DIR / "task_log.json") as f:
+            tasks = json.load(f)
+    except Exception:
+        tasks = []
+
+    try:
+        with open(MEMORY_DIR / "outcomes.json") as f:
+            outcomes = json.load(f)
+    except Exception:
+        outcomes = []
+
+    tasks_recent = tasks[-n:] if isinstance(tasks, list) else []
+    outcomes_recent = outcomes[-n:] if isinstance(outcomes, list) else []
+
+    summary_lines = ["Tasks:"]
+    if tasks_recent:
+        summary_lines.extend(f"- {t}" for t in tasks_recent)
+    else:
+        summary_lines.append("- None")
+
+    summary_lines.append("")
+    summary_lines.append("Outcomes:")
+    if outcomes_recent:
+        summary_lines.extend(f"- {o}" for o in outcomes_recent)
+    else:
+        summary_lines.append("- None")
+
+    return "\n".join(summary_lines)
+
 def load_goal():
     with open(MEMORY_DIR / "goals.json") as f:
         return json.load(f)["current_goal"]
@@ -42,6 +74,9 @@ def log_agent_output(agent_name: str, context: str, output: str):
 def run_agent(agent_name: str, context: str) -> str:
     print(f"\n>>> Running {agent_name}...")
     prompt = load_prompt(agent_name)
+    if agent_name == "planner":
+        recent = get_recent_task_and_outcome_summaries()
+        prompt = prompt.replace("{{INSERT_RECENT_TASKS_AND_OUTCOMES_HERE}}", recent)
     full_prompt = f"{prompt}\n\nCONTEXT:\n{context.strip()}"
     response = call_ollama(full_prompt)
     print(f"\n--- {agent_name} Response ---\n{response.strip()}\n")
