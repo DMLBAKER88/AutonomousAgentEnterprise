@@ -1,8 +1,8 @@
 import json
 import subprocess
+from datetime import datetime
 from pathlib import Path
 import argparse
-from datetime import datetime
 
 ENTERPRISE_ROOT = Path(__file__).parent
 MEMORY_DIR = ENTERPRISE_ROOT / "memory"
@@ -13,11 +13,14 @@ OLLAMA_MODEL = "qwen2.5:14b"
 
 DEBUG = False
 QUIET = False
+LOGBOOK_PATH = None
+AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
 
 LOG_DIR.mkdir(exist_ok=True)
-LOGBOOK_PATH = None
 
-AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
+# ----------------------------------------
+# Utility + I/O Functions
+# ----------------------------------------
 
 def debug_print(msg: str):
     if DEBUG:
@@ -34,7 +37,6 @@ def load_config() -> dict:
     return {"debug": False, "quiet": False}
 
 def init_logbook() -> Path:
-    """Create a markdown logbook for this run and return its path."""
     global LOGBOOK_PATH
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     LOGBOOK_PATH = LOG_DIR / f"logbook_{timestamp}.md"
@@ -42,9 +44,38 @@ def init_logbook() -> Path:
         f.write(f"# 📓 AWE Logbook - {timestamp}\n\n")
     return LOGBOOK_PATH
 
-def load_goal():
+def log_agent_output(agent_name: str, context_label: str, context: str, output: str):
+    if LOGBOOK_PATH is None:
+        raise RuntimeError("Logbook not initialized")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(LOGBOOK_PATH, "a") as f:
+        f.write(f"## 🤖 Agent: {agent_name}\n")
+        f.write(f"**Timestamp:** {timestamp}\n\n")
+        f.write(f"### {context_label}\n{context.strip()}\n\n")
+        f.write(f"### 📣 Output\n{output.strip()}\n\n---\n\n")
+
+def append_task_log(entry: dict):
+    path = MEMORY_DIR / "task_log.json"
+    data = []
+    if path.exists():
+        with path.open() as f:
+            data = json.load(f)
+    data.append(entry)
+    with path.open("w") as f:
+        json.dump(data, f, indent=2)
+
+# ----------------------------------------
+# Core Execution Logic
+# ----------------------------------------
+
+def load_goal() -> str:
     with open(MEMORY_DIR / "goals.json") as f:
         return json.load(f)["current_goal"]
+
+def load_prompt(agent_name: str) -> str:
+    with open(PROMPT_DIR / f"{agent_name}_prompt.txt") as f:
+        return f.read()
 
 def call_ollama(prompt: str) -> str:
     debug_print(f"Calling Ollama with model {OLLAMA_MODEL}")
@@ -57,59 +88,49 @@ def call_ollama(prompt: str) -> str:
     debug_print(result.stderr.decode("utf-8"))
     return result.stdout.decode("utf-8")
 
-def load_prompt(agent_name: str) -> str:
-    with open(PROMPT_DIR / f"{agent_name}_prompt.txt") as f:
-        return f.read()
-
-def log_agent_output(agent_name: str, context_label: str, context: str, output: str):
-    """Append a nicely formatted log entry to the run logbook."""
-    if LOGBOOK_PATH is None:
-        raise RuntimeError("Logbook has not been initialized")
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(LOGBOOK_PATH, "a") as f:
-        f.write(f"## 🤖 Agent: {agent_name}\n")
-        f.write(f"**Timestamp:** {timestamp}\n\n")
-        f.write(f"### {context_label}\n")
-        f.write(context.strip() + "\n\n")
-        f.write("### 📣 Output\n")
-        f.write(output.strip() + "\n\n")
-        f.write("---\n\n")
-
 def run_agent(agent_name: str, context_label: str, context: str) -> str:
     speak(f"\n>>> Running {agent_name}...")
     prompt = load_prompt(agent_name)
-    debug_print(f"Prompt for {agent_name}:\n{prompt}")
+    debug_print(f"Prompt:\n{prompt}")
     full_prompt = f"{prompt}\n\nCONTEXT:\n{context.strip()}"
     debug_print(f"Full prompt:\n{full_prompt}")
     response = call_ollama(full_prompt)
+    cleaned = response.strip()
     if not QUIET:
-        print(f"\n--- {agent_name} Response ---\n{response.strip()}\n")
+        print(f"\n--- {agent_name} Response ---\n{cleaned}\n")
     else:
-        debug_print(f"{agent_name} Response:\n{response.strip()}")
-    log_agent_output(agent_name, context_label, context, response)
-    return response.strip()
+        debug_print(f"{agent_name} Response:\n{cleaned}")
+    log_agent_output(agent_name, context_label, context, cleaned)
+    return cleaned
 
-def run_cycle(sequence=AGENT_SEQUENCE) -> None:
-    """Execute one complete agent cycle using the given agent order."""
+# ----------------------------------------
+# Full Cycle Runner
+# ----------------------------------------
+
+def run_cycle() -> None:
     init_logbook()
-    context = load_goal()
-    print(f"=== Current Goal: {context} ===")
+    goal = load_goal()
+    print(f"=== Current Goal: {goal} ===")
+    
+    tasks = run_agent("planner", "Goal", goal)
+    execution_summary = run_agent("executor", "Task List", tasks)
+    reflection = run_agent("loopmind", "Execution Summary", execution_summary)
+    challenge = run_agent("challenger", "Reflection", reflection)
 
-    for agent in sequence:
-        context_label = {
-            "planner": "Goal",
-            "executor": "Task List",
-            "loopmind": "Execution Summary",
-            "challenger": "Reflection"
-        }.get(agent, "Context")
-        context = run_agent(agent, context_label, context)
-
-    if QUIET:
-        print("\n--- Final Reflection ---")
-        print(context)
+    append_task_log({
+        "timestamp": datetime.utcnow().isoformat(),
+        "goal": goal,
+        "tasks": tasks,
+        "execution": execution_summary,
+        "reflection": reflection,
+        "challenge": challenge
+    })
 
     print("\n=== CYCLE COMPLETE ===")
+
+# ----------------------------------------
+# CLI Entrypoint
+# ----------------------------------------
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the autonomous agent loop")
@@ -117,11 +138,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quiet", action="store_true", help="Suppress agent chatter")
     return parser.parse_args()
 
-from enterprise_runner import EnterpriseRunner
-
 if __name__ == "__main__":
     args = parse_args()
     cfg = load_config()
-    debug = args.debug or cfg.get("debug", False)
-    quiet = args.quiet or cfg.get("quiet", False)
-    EnterpriseRunner().run_loop(debug=debug, quiet=quiet)
+    DEBUG = args.debug or cfg.get("debug", False)
+    QUIET = args.quiet or cfg.get("quiet", False)
+    run_cycle()
