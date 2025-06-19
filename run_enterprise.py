@@ -19,35 +19,6 @@ AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
 LOG_DIR.mkdir(exist_ok=True)
 
 # ----------------------------------------
-# Memory Summary for Planner
-# ----------------------------------------
-
-def get_recent_task_and_outcome_summaries(n: int = 3) -> str:
-    """Return formatted summaries of the last N tasks and outcomes."""
-    try:
-        with open(MEMORY_DIR / "task_log.json") as f:
-            tasks = json.load(f)
-    except Exception:
-        tasks = []
-
-    try:
-        with open(MEMORY_DIR / "outcomes.json") as f:
-            outcomes = json.load(f)
-    except Exception:
-        outcomes = []
-
-    tasks_recent = tasks[-n:] if isinstance(tasks, list) else []
-    outcomes_recent = outcomes[-n:] if isinstance(outcomes, list) else []
-
-    summary_lines = ["Tasks:"]
-    summary_lines.extend(f"- {t}" for t in tasks_recent) if tasks_recent else summary_lines.append("- None")
-
-    summary_lines.append("\nOutcomes:")
-    summary_lines.extend(f"- {o}" for o in outcomes_recent) if outcomes_recent else summary_lines.append("- None")
-
-    return "\n".join(summary_lines)
-
-# ----------------------------------------
 # Utility + I/O Functions
 # ----------------------------------------
 
@@ -84,14 +55,54 @@ def log_agent_output(agent_name: str, context_label: str, context: str, output: 
         f.write(f"### {context_label}\n{context.strip()}\n\n")
         f.write(f"### 📣 Output\n{output.strip()}\n\n---\n\n")
 
-def append_task_log(entry: dict):
-    path = MEMORY_DIR / "task_log.json"
-    data = []
-    if path.exists():
-        with path.open() as f:
-            data = json.load(f)
+# ----------------------------------------
+# Memory Summary for Planner
+# ----------------------------------------
+
+def get_recent_task_and_outcome_summaries(n: int = 3) -> str:
+    try:
+        with open(MEMORY_DIR / "task_log.json") as f:
+            tasks = json.load(f)
+    except Exception:
+        tasks = []
+
+    try:
+        with open(MEMORY_DIR / "outcomes.json") as f:
+            outcomes = json.load(f)
+    except Exception:
+        outcomes = []
+
+    tasks_recent = tasks[-n:] if isinstance(tasks, list) else []
+    outcomes_recent = outcomes[-n:] if isinstance(outcomes, list) else []
+
+    summary_lines = ["Tasks:"]
+    summary_lines.extend(f"- {t}" for t in tasks_recent) if tasks_recent else summary_lines.append("- None")
+    summary_lines.append("\nOutcomes:")
+    summary_lines.extend(f"- {o}" for o in outcomes_recent) if outcomes_recent else summary_lines.append("- None")
+
+    return "\n".join(summary_lines)
+
+# ----------------------------------------
+# Task Log
+# ----------------------------------------
+
+def update_task_log(tasks: str, execution_summary: str):
+    log_path = MEMORY_DIR / "task_log.json"
+    if not log_path.exists():
+        log_path.write_text("[]")
+
+    with open(log_path) as f:
+        data = json.load(f)
+
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "tasks": tasks,
+        "execution_summary": execution_summary,
+    }
+
     data.append(entry)
-    with path.open("w") as f:
+
+    with open(log_path, "w") as f:
         json.dump(data, f, indent=2)
 
 # ----------------------------------------
@@ -123,16 +134,13 @@ def run_agent(agent_name: str, context_label: str, context: str) -> str:
     if agent_name == "planner":
         recent = get_recent_task_and_outcome_summaries()
         prompt = prompt.replace("{{INSERT_RECENT_TASKS_AND_OUTCOMES_HERE}}", recent)
-    debug_print(f"Prompt:\n{prompt}")
     full_prompt = f"{prompt}\n\nCONTEXT:\n{context.strip()}"
     debug_print(f"Full prompt:\n{full_prompt}")
     response = call_ollama(full_prompt)
     cleaned = response.strip()
+    log_agent_output(agent_name, context_label, context, cleaned)
     if not QUIET:
         print(f"\n--- {agent_name} Response ---\n{cleaned}\n")
-    else:
-        debug_print(f"{agent_name} Response:\n{cleaned}")
-    log_agent_output(agent_name, context_label, context, cleaned)
     return cleaned
 
 # ----------------------------------------
@@ -143,20 +151,13 @@ def run_cycle() -> None:
     init_logbook()
     goal = load_goal()
     print(f"=== Current Goal: {goal} ===")
-    
+
     tasks = run_agent("planner", "Goal", goal)
     execution_summary = run_agent("executor", "Task List", tasks)
     reflection = run_agent("loopmind", "Execution Summary", execution_summary)
     challenge = run_agent("challenger", "Reflection", reflection)
 
-    append_task_log({
-        "timestamp": datetime.utcnow().isoformat(),
-        "goal": goal,
-        "tasks": tasks,
-        "execution": execution_summary,
-        "reflection": reflection,
-        "challenge": challenge
-    })
+    update_task_log(tasks, execution_summary)
 
     print("\n=== CYCLE COMPLETE ===")
 
