@@ -14,7 +14,6 @@ OLLAMA_MODEL = "qwen2.5:14b"
 DEBUG = False
 QUIET = False
 LOGBOOK_PATH = None
-AGENT_SEQUENCE = ["planner", "executor", "loopmind", "challenger"]
 
 LOG_DIR.mkdir(exist_ok=True)
 
