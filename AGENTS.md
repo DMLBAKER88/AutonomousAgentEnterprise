@@ -39,13 +39,13 @@ This project orchestrates several autonomous agents to evolve the **Autonomous W
 
 ## Adding New Agents
 1. Create a new prompt file in `prompts/` named `<agent>_prompt.txt` describing the role, required context, and output format.
-2. Extend `run_enterprise.py` to call the new agent in the desired order using `run_agent("<agent>", context)`.
+2. Extend `enterprise_runner.py` (the `EnterpriseRunner` class) to call the new agent in the desired order using `run_agent("<agent>", context)`.
 3. Document the agent in this file under **Current Agents** with its role and output expectations.
 4. Commit the prompt and code changes along with an update to `changelog.md`.
 5. Ensure the agent respects `governance.md` and logs its output under `logs/`.
 
 ## Coding & Prompt Conventions
-* Keep agent code in Python and follow the existing pattern in `run_enterprise.py`.
+* Keep agent code in Python and follow the existing pattern in `enterprise_runner.py`.
 * Prompts should explicitly reference any docs the agent must read (e.g., `manifesto.md`, `system_lifecycle.md`).
 * Agents should respond in concise markdown where possible and avoid unnecessary verbosity.
 * Every agent invocation is logged via `log_agent_output()` for traceability.
